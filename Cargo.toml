@@ -1,12 +1,22 @@
 [package]
 name = "tower-kafka"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+authors = [
+    "Charlotte McElwain <charlotte.c.mcelwain@gmail.com>",
+]
+license = "MIT/Apache-2.0"
+description = "Tower service for Apache Kafka"
+homepage = "https://github.com/tychedelia/tower-kafka"
+repository = "https://github.com/tychedelia/tower-kafka"
+documentation = "https://docs.rs/tower-kafka"
+readme = "README.md"
+keywords = ["kafka"]
 
 [dependencies]
 bytes = "1.3"
 futures = "0.3"
-kafka-protocol = { git = "https://github.com/tychedelia/kafka-protocol-rs" }
+kafka-protocol = "0.4"
 thiserror = "1"
 tokio = { version = "1.0", features = ["full"] }
 tokio-tower = "0.7.0-rc3"
