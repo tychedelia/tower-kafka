@@ -1,27 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashSet};
 use std::fmt::{Debug, Display, Formatter};
 use std::future::{Future, poll_fn};
-use std::io;
-use std::marker::PhantomData;
-use std::net::SocketAddr;
 use std::pin::Pin;
-use std::process::Output;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::task::{Context, Poll};
-
-use bytes::{BytesMut, Bytes, Buf};
-use futures::{AsyncRead, AsyncWrite, Sink, TryFutureExt, TryStream};
-use kafka_protocol::messages::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, CreateTopicsRequest, CreateTopicsResponse, LeaderAndIsrRequest, LeaderAndIsrResponse, MetadataRequest, MetadataResponse, RequestHeader, RequestKind, ResponseHeader, ResponseKind};
-use kafka_protocol::protocol::{Decodable, DecodeError, Encodable, EncodeError, HeaderVersion};
-use kafka_protocol::protocol::buf::ByteBuf;
-use tokio::net::TcpStream;
-use tokio_tower::{Error, multiplex};
+use bytes::{BytesMut};
+use futures::TryFutureExt;
+use tokio_tower::{Error};
 use tokio_tower::multiplex::{
-    Client, client::VecDequePendingStore, MultiplexTransport, Server, TagStore,
+    Client, client::VecDequePendingStore, MultiplexTransport, TagStore,
 };
-use tokio_util::codec;
-use tokio_util::codec::{Decoder, Encoder, Framed, FramedParts, FramedWrite};
+use tokio_util::codec::{Framed};
 use tower::Service;
 
 use crate::codec::KafkaClientCodec;
@@ -39,7 +28,7 @@ const RESPONSE_CORRELATION_ID_OFFSET: usize = 0;
 impl TagStore<BytesMut, BytesMut> for CorrelationStore {
     type Tag = i32;
 
-    fn assign_tag(mut self: Pin<&mut Self>, request: &mut BytesMut) -> i32 {
+    fn assign_tag(self: Pin<&mut Self>, request: &mut BytesMut) -> i32 {
         let tag = self.id_gen.fetch_add(1, Ordering::SeqCst);
         request[REQUEST_CORRELATION_ID_OFFSET..REQUEST_CORRELATION_ID_OFFSET+4].copy_from_slice(&tag.to_be_bytes());
         tag
@@ -89,16 +78,6 @@ impl <T> From<KafkaClientSvcError<T>> for KafkaTransportError
             _ => KafkaTransportError::Unknown,
         }
     }
-}
-
-struct Request {
-    header: RequestHeader,
-    body: BytesMut
-}
-
-struct Response {
-    header: ResponseHeader,
-    body: BytesMut
 }
 
 type WrappedTransport<T> = Framed<T, KafkaClientCodec>;

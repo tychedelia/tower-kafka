@@ -3,7 +3,7 @@ use kafka_protocol::protocol::StrBytes;
 use tokio::net::TcpStream;
 use tower::Service;
 use tower_kafka::client::KafkaTransportError;
-use tower_kafka::{KafkaRequest, TowerKafka, client};
+use tower_kafka::{TowerKafka};
 
 // Make sure to run kafka from docker-compose in root of project.
 #[tokio::test]

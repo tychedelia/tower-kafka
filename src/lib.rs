@@ -3,12 +3,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use bytes::BytesMut;
 use futures::future::Future;
-use futures::{AsyncRead, AsyncWrite, FutureExt, Sink, TryFutureExt};
+use futures::{TryFutureExt};
 use kafka_protocol::messages::{RequestHeader, ResponseHeader};
 use kafka_protocol::protocol::{Decodable, Encodable, HeaderVersion, Message, Request};
-use tokio_util::codec::Encoder;
-use crate::codec::KafkaClientCodec;
-use crate::client::{KafkaClient, KafkaTransportError};
+use crate::client::{KafkaTransportError};
 
 mod codec;
 pub mod client;
@@ -39,7 +37,7 @@ impl<Req, C> tower::Service<KafkaRequest<Req>> for TowerKafka<C>
     type Error = KafkaTransportError;
     type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>>>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 
@@ -50,7 +48,7 @@ impl<Req, C> tower::Service<KafkaRequest<Req>> for TowerKafka<C>
         req.0.encode(&mut bytes, <Req as HeaderVersion>::header_version(version)).unwrap();
         req.1.encode(&mut bytes, version).unwrap();
 
-        let mut fut = self.client.call(bytes)
+        let fut = self.client.call(bytes)
             .map_err(|e| {
                     println!("{:?}", e);
                     KafkaTransportError::ClientDropped

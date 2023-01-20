@@ -1,27 +1,10 @@
-use std::collections::{HashMap, HashSet};
-use std::fmt::{Debug, Display, Formatter};
-use std::future::poll_fn;
-use std::io;
-use std::marker::PhantomData;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicI32, Ordering};
 
-use bytes::{BytesMut, Bytes, Buf};
-use futures::{Sink, TryStream};
-use kafka_protocol::messages::{ApiKey, ApiVersionsRequest, ApiVersionsResponse, CreateTopicsRequest, CreateTopicsResponse, LeaderAndIsrRequest, LeaderAndIsrResponse, MetadataRequest, MetadataResponse, RequestHeader, RequestKind, ResponseHeader, ResponseKind};
-use kafka_protocol::protocol::{Decodable, DecodeError, Encodable, EncodeError, HeaderVersion, Request};
+use std::fmt::{Debug};
+
+use std::io;
+use bytes::{BytesMut};
 use kafka_protocol::protocol::buf::ByteBuf;
-use tokio::io::AsyncWrite;
-use tokio::net::TcpStream;
-use tokio_tower::Error;
-use tokio_tower::multiplex::{
-    Client, client::VecDequePendingStore, MultiplexTransport, Server, TagStore,
-};
 use tokio_util::codec;
-use tokio_util::codec::{Framed, FramedParts, FramedWrite};
-use tower::Service;
 
 #[derive(Debug)]
 pub struct KafkaClientCodec {
