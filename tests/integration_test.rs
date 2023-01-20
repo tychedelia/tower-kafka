@@ -6,6 +6,7 @@ use tower_kafka::transport::{KafkaTransportError};
 use tower_kafka::{KafkaSvc};
 
 // Make sure to run kafka from docker-compose in root of project.
+#[ignore]
 #[tokio::test]
 async fn test() -> Result<(), KafkaTransportError> {
     let stream = TcpStream::connect("127.0.0.1:9092").await.unwrap();
