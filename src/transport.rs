@@ -1,3 +1,7 @@
+//! The lower level transport layer for communicating with Kafka, providing a multiplexed client
+//! over a given connection. Kafka uses a correlation identifier on each message provided by the
+//! client to track responses for a particular message. The Kafka protocol itself is length
+//! delimited.
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::future::Future;
@@ -16,7 +20,7 @@ use tokio_util::codec;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tower::Service;
 
-// `tokio-tower` tag store for the Kafka protocol.
+/// `tokio-tower` tag store for the Kafka protocol.
 #[derive(Default)]
 pub struct CorrelationStore {
     correlation_ids: HashSet<i32>,
@@ -48,19 +52,41 @@ impl TagStore<BytesMut, BytesMut> for CorrelationStore {
 }
 
 type FramedIO<T> = Framed<T, KafkaClientCodec>;
+/// A transport error occurred in the transport client.
 pub type TransportError<T> = Error<MultiplexTransport<FramedIO<T>, CorrelationStore>, BytesMut>;
+/// A multiplexed client that handles correlation ids.
 pub type TransportClient<T> =
     Client<MultiplexTransport<FramedIO<T>, CorrelationStore>, TransportError<T>, BytesMut>;
 
+/// Errors that can be returned from the underlying transport layer.
 #[derive(thiserror::Error, Debug)]
 pub enum KafkaTransportError {
+    /// The underlying transport failed to send a request.
     BrokenTransportSend,
+
+    /// The underlying transport failed while attempting to receive a response.
+    ///
+    /// If `None`, the transport closed without error while there were pending requests.
     BrokenTransportRecv,
+
+    /// The internal pending data store has dropped the pending response.
     Cancelled,
+
+    /// Attempted to issue a `call` when no more requests can be in flight.
+    ///
+    /// See [`tower_service::Service::poll_ready`] and [`Client::with_limit`].
     TransportFull,
+
+    /// Attempted to issue a `call`, but the underlying transport has been closed.
     ClientDropped,
+
+    /// The server sent a response that the client was not expecting.
     Desynchronized,
+
+    /// The underlying transport task did not exit gracefully (either panic or cancellation).
+    /// Transport task panics can happen for example when the codec logic panics.
     TransportDropped,
+    /// An unknown error occurred.
     Unknown,
 }
 
@@ -116,30 +142,6 @@ impl codec::Encoder<BytesMut> for KafkaClientCodec {
     }
 }
 
-pub struct MakeClient<C> {
-    connection: C,
-}
-
-impl<C> MakeClient<C>
-where
-    C: MakeConnection + 'static,
-{
-    pub fn with_connection(connection: C) -> Self {
-        Self { connection }
-    }
-
-    pub async fn into_client(self) -> Result<TransportClient<C::Connection>, C::Error> {
-        let io = self.connection.connect().await?;
-        let io = Framed::new(io, KafkaClientCodec::new());
-
-        let client = Client::builder(MultiplexTransport::new(io, CorrelationStore::default()))
-            .pending_store(VecDequePendingStore::default())
-            .build();
-
-        Ok(client)
-    }
-}
-
 impl codec::Decoder for KafkaClientCodec {
     type Item = BytesMut;
     type Error = io::Error;
@@ -153,11 +155,40 @@ impl codec::Decoder for KafkaClientCodec {
     }
 }
 
+/// Helper for building new clients.
+pub struct MakeClient<C> {
+    connection: C,
+}
+
+impl<C> MakeClient<C>
+where
+    C: MakeConnection + 'static,
+{
+    /// Create a new [`MakeClient`] with the provided connection.
+    pub fn with_connection(connection: C) -> Self {
+        Self { connection }
+    }
+
+    /// Wait for the connection and produce a new client instance when ready.
+    pub async fn into_client(self) -> Result<TransportClient<C::Connection>, C::Error> {
+        let io = self.connection.connect().await?;
+        let io = Framed::new(io, KafkaClientCodec::new());
+
+        let client = Client::builder(MultiplexTransport::new(io, CorrelationStore::default()))
+            .pending_store(VecDequePendingStore::default())
+            .build();
+
+        Ok(client)
+    }
+}
+
+/// A service wrapper for transporting bytes to Kafka.
 pub struct KafkaTransportService<Svc> {
     inner: Svc,
 }
 
 impl<Svc> KafkaTransportService<Svc> {
+    /// Create a new transport service wrapping the provided inner service.
     pub fn new(inner: Svc) -> Self {
         Self { inner }
     }

@@ -5,19 +5,14 @@ use tower::ServiceExt;
 use tower_kafka::connect::TcpConnection;
 use tower_kafka::error::KafkaError;
 use tower_kafka::transport::{KafkaTransportService, MakeClient};
-use tower_kafka::KafkaService;
+use tower_kafka::{KafkaService, MakeService};
 
 // Make sure to run kafka from docker-compose in root of project.
-#[ignore]
+// #[ignore]
 #[tokio::test]
 async fn test() -> Result<(), KafkaError> {
     let connection = TcpConnection::new("127.0.0.1:9092".parse().unwrap());
-    let client = MakeClient::with_connection(connection)
-        .into_client()
-        .await
-        .unwrap();
-    let transport = KafkaTransportService::new(client);
-    let svc = KafkaService { inner: transport };
+    let svc = MakeService::new(connection).into_service().await.unwrap();
     let mut header = RequestHeader::default();
     header.client_id = Some(StrBytes::from_str("hi"));
     header.request_api_key = ApiKey::MetadataKey as i16;

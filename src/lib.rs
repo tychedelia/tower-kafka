@@ -4,14 +4,19 @@
 //!
 //! ## Example
 //!
-//! ```rust
+//! ```no_run
 //! use tower_kafka::KafkaService;
 //!
-//! #[tokio::main]
-//! async fn main() -> std::io::Result<()> {
-//!     Ok(())
-//! }
+//! # #[tokio::main]
+//! # async fn main() -> std::io::Result<()> {
+//!     use tower_kafka::connect::TcpConnection;
+//!     use tower_kafka::MakeService;
+//!     let connection = TcpConnection::new("127.0.0.1:9093".parse().unwrap());
+//!     let svc = MakeService::new(connection).into_service().await.unwrap();
+//! #   Ok(())
+//! # }
 //! ```
+#![deny(missing_docs)]
 
 use crate::connect::MakeConnection;
 use crate::error::KafkaError;
@@ -28,11 +33,13 @@ pub mod connect;
 pub mod error;
 pub mod transport;
 
+/// A service for interacting with Apache Kafka.
 pub struct KafkaService<Svc> {
-    pub inner: Svc,
+    inner: Svc,
 }
 
 impl<Svc> KafkaService<Svc> {
+    /// Create a new service wrapping the provided transport service.
     pub fn new(inner: Svc) -> Self {
         Self { inner }
     }
@@ -60,6 +67,7 @@ impl<Svc> KafkaService<Svc> {
     }
 }
 
+/// Helper for constructing new service instances from a connection.
 pub struct MakeService<C> {
     connection: C,
 }
@@ -68,10 +76,12 @@ impl<C> MakeService<C>
 where
     C: MakeConnection + 'static,
 {
+    /// Create a new helper with the provided connection.
     pub fn new(connection: C) -> Self {
         Self { connection }
     }
 
+    /// Wait for connection and a new service instance.
     pub async fn into_service(
         self,
     ) -> Result<KafkaService<KafkaTransportService<TransportClient<C::Connection>>>, C::Error> {
@@ -83,7 +93,9 @@ where
     }
 }
 
+/// A Kafka request.
 pub type KafkaRequest<Req> = (RequestHeader, Req);
+/// A Kafka response.
 pub type KafkaResponse<Res> = (ResponseHeader, Res);
 
 impl<Req, Svc> Service<KafkaRequest<Req>> for KafkaService<Svc>
