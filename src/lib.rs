@@ -1,4 +1,3 @@
-use std::error::Error;
 /// # tower-kafka
 ///
 /// A tower service for interacting with Apache Kafka.
@@ -6,43 +5,79 @@ use std::error::Error;
 /// ## Example
 ///
 /// ```rust
-/// use tower_kafka::KafkaSvc;
+/// use tower_kafka::KafkaService;
 ///
 /// #[tokio::main]
 /// async fn main() -> std::io::Result<()> {
 ///     use tokio::net::TcpStream;
 ///     let tcp_stream = TcpStream::connect("127.0.0.1:9093".parse().unwrap()).await?;
-///     let svc = KafkaSvc::new(tcp_stream);
+///     let svc = KafkaService::new(tcp_stream);
 /// }
 /// ```
 use std::fmt::{Debug, Display, Formatter};
 use std::pin::Pin;
-use std::process::Output;
 use std::task::{Context, Poll};
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use futures::future::Future;
 use kafka_protocol::messages::{RequestHeader, ResponseHeader};
 use kafka_protocol::protocol::{Decodable, DecodeError, Encodable, EncodeError, HeaderVersion, Message, Request};
 use tower::Service;
 use crate::connect::MakeConnection;
 use crate::KafkaError::Serde;
-use crate::transport::{KafkaTransportError, KafkaTransportSvc};
+use crate::transport::{KafkaTransportError, KafkaTransportService, MakeClient, TransportClient};
 
 pub mod transport;
 pub mod connect;
 
-pub struct KafkaSvc<T> {
-    inner: KafkaTransportSvc<T>,
+pub struct KafkaService<Svc> {
+    inner: Svc
 }
 
-// impl <C> KafkaSvc<C::Connection>
-//     where C: MakeConnection
-// {
-//     pub async fn new(connection: C) -> Result<Self, C::Error> {
-//         let inner = KafkaTransportSvc::new(connection).await?;
-//         Ok(Self { inner })
-//     }
-// }
+impl <Svc> KafkaService<Svc> {
+    pub fn new(inner: Svc) -> Self {
+        Self {
+            inner
+        }
+    }
+
+    fn encode<Req>(req: KafkaRequest<Req>) -> Result<BytesMut, KafkaError>
+        where Req: Message + HeaderVersion + Encodable
+    {
+        let version = req.0.request_api_version;
+        let mut bytes = BytesMut::new();
+        req.0.encode(&mut bytes, <Req as HeaderVersion>::header_version(version))?;
+        req.1.encode(&mut bytes, version)?;
+        Ok(bytes)
+    }
+
+    fn decode<Res>(mut bytes: BytesMut, version: i16) -> Result<KafkaResponse<Res>, KafkaError>
+        where Res: Message + HeaderVersion + Decodable
+    {
+        let header = ResponseHeader::decode(&mut bytes, <Res as HeaderVersion>::header_version(version))?;
+        let response = <Res as Decodable>::decode(&mut bytes, version)?;
+        Ok((header, response))
+    }
+}
+
+pub struct MakeService<C> {
+    connection: C
+}
+
+impl <C> MakeService<C>
+    where C: MakeConnection + 'static
+{
+    pub fn new(connection: C) -> Self {
+        Self {
+            connection
+        }
+    }
+
+    pub async fn into_service(self) -> Result<KafkaService<KafkaTransportService<TransportClient<C::Connection>>>, C::Error> {
+        let client = MakeClient::with_connection(self.connection).into_client().await?;
+        let transport = KafkaTransportService::new(client);
+        Ok(KafkaService::new(transport))
+    }
+}
 
 #[derive(thiserror::Error, Debug)]
 pub enum KafkaError {
@@ -71,12 +106,11 @@ impl From<EncodeError> for KafkaError {
 pub type KafkaRequest<Req> = (RequestHeader, Req);
 pub type KafkaResponse<Res> = (ResponseHeader, Res);
 
-impl<Req, S, E> Service<KafkaRequest<Req>> for KafkaSvc<S>
+impl<Req, Svc> Service<KafkaRequest<Req>> for KafkaService<Svc>
     where Req: Request + Message + Encodable + HeaderVersion,
-          S: Service<BytesMut, Response=BytesMut, Error=E>,
-          <S as Service<BytesMut>>::Error: Debug,
-          <S as Service<BytesMut>>::Future: 'static,
-          E: Error + Into<KafkaError>, KafkaError: From<E>
+          Svc: Service<BytesMut, Response=BytesMut>,
+          <Svc as Service<BytesMut>>::Error: Into<KafkaError> + Debug,
+          <Svc as Service<BytesMut>>::Future: 'static,
 {
     type Response = KafkaResponse<Req::Response>;
     type Error = KafkaError;
@@ -87,17 +121,13 @@ impl<Req, S, E> Service<KafkaRequest<Req>> for KafkaSvc<S>
     }
 
     fn call(&mut self, req: KafkaRequest<Req>) -> Self::Future {
+        let version = req.0.request_api_version;
+        let encoded = Self::encode(req).unwrap();
+        let fut = self.inner.call(encoded);
         Box::pin(async move {
-            let version = req.0.request_api_version;
-            let mut bytes = BytesMut::new();
-            req.0.encode(&mut bytes, <Req as HeaderVersion>::header_version(version))?;
-            req.1.encode(&mut bytes, version)?;
-
-            let mut res_bytes = self.inner.call(bytes).await?;
-
-            let header = ResponseHeader::decode(&mut res_bytes, <Req::Response as HeaderVersion>::header_version(version))?;
-            let response = <Req::Response as Decodable>::decode(&mut res_bytes, version)?;
-            Ok((header, response))
+            let res_bytes = fut.await.map_err(|e| e.into())?;
+            let response = Self::decode(res_bytes, version)?;
+            Ok(response)
         })
     }
 }

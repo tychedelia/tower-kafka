@@ -16,7 +16,7 @@ pub trait MakeConnection {
     fn connect(self) -> Self::Future;
 }
 
-struct TcpConnection {
+pub struct TcpConnection {
     addr: SocketAddr,
 }
 

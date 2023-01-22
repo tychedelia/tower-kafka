@@ -8,6 +8,7 @@ use std::task::{Context, Poll};
 
 use bytes::BytesMut;
 use futures::TryFutureExt;
+use kafka_protocol::protocol::buf::ByteBuf;
 use tokio_tower::Error;
 use tokio_tower::multiplex::{
     Client, client::VecDequePendingStore, MultiplexTransport, TagStore,
@@ -44,12 +45,12 @@ impl TagStore<BytesMut, BytesMut> for CorrelationStore {
 }
 
 type FramedIO<T> = Framed<T, KafkaClientCodec>;
-pub type TokioTowerError<T> = Error<
+pub type TransportError<T> = Error<
     MultiplexTransport<FramedIO<T>, CorrelationStore>, BytesMut
 >;
-pub type TokioTowerClient<T> = Client<
+pub type TransportClient<T> = Client<
     MultiplexTransport<FramedIO<T>, CorrelationStore>,
-    TokioTowerError<T>,
+    TransportError<T>,
     BytesMut
 >;
 
@@ -72,18 +73,18 @@ impl Display for KafkaTransportError {
     }
 }
 
-impl<T> From<TokioTowerError<T>> for KafkaTransportError
+impl<T> From<TransportError<T>> for KafkaTransportError
     where T: tokio::io::AsyncWrite + tokio::io::AsyncRead
 {
-    fn from(value: TokioTowerError<T>) -> Self {
+    fn from(value: TransportError<T>) -> Self {
         match value {
-            TokioTowerError::BrokenTransportSend(_) => KafkaTransportError::BrokenTransportSend,
-            TokioTowerError::BrokenTransportRecv(_) => KafkaTransportError::BrokenTransportRecv,
-            TokioTowerError::Cancelled => KafkaTransportError::Cancelled,
-            TokioTowerError::TransportFull => KafkaTransportError::TransportFull,
-            TokioTowerError::ClientDropped => KafkaTransportError::ClientDropped,
-            TokioTowerError::Desynchronized => KafkaTransportError::Desynchronized,
-            TokioTowerError::TransportDropped => KafkaTransportError::TransportDropped,
+            TransportError::BrokenTransportSend(_) => KafkaTransportError::BrokenTransportSend,
+            TransportError::BrokenTransportRecv(_) => KafkaTransportError::BrokenTransportRecv,
+            TransportError::Cancelled => KafkaTransportError::Cancelled,
+            TransportError::TransportFull => KafkaTransportError::TransportFull,
+            TransportError::ClientDropped => KafkaTransportError::ClientDropped,
+            TransportError::Desynchronized => KafkaTransportError::Desynchronized,
+            TransportError::TransportDropped => KafkaTransportError::TransportDropped,
             _ => KafkaTransportError::Unknown,
         }
     }
@@ -93,14 +94,14 @@ impl<T> From<TokioTowerError<T>> for KafkaTransportError
 /// protocol frames are well formed.
 #[derive(Debug)]
 pub struct KafkaClientCodec {
-    length_codec: codec::LengthDelimitedCodec,
+    length_codec: LengthDelimitedCodec,
 }
 
 impl KafkaClientCodec {
     /// Create a new codec.
     pub fn new() -> Self {
         Self {
-            length_codec: codec::LengthDelimitedCodec::builder()
+            length_codec: LengthDelimitedCodec::builder()
                 .max_frame_length(i32::MAX as usize)
                 .length_field_length(4)
                 .new_codec(),
@@ -121,6 +122,30 @@ impl codec::Encoder<BytesMut> for KafkaClientCodec {
     }
 }
 
+pub struct MakeClient<C> {
+    connection: C
+}
+
+impl <C> MakeClient<C>
+    where C: MakeConnection + 'static
+{
+    pub fn with_connection(connection: C) -> Self {
+        Self {
+            connection
+        }
+    }
+
+    pub async fn into_client(self) -> Result<TransportClient<C::Connection>, C::Error> {
+        let io = self.connection.connect().await?;
+        let io = Framed::new(io, KafkaClientCodec::new());
+
+        let client = Client::builder(MultiplexTransport::new(io, CorrelationStore::default()))
+            .pending_store(VecDequePendingStore::default())
+            .build();
+
+        Ok(client)
+    }
+}
 
 impl codec::Decoder for KafkaClientCodec {
     type Item = BytesMut;
@@ -135,30 +160,19 @@ impl codec::Decoder for KafkaClientCodec {
     }
 }
 
-pub struct KafkaTransportSvc<T>
-    where T: tokio::io::AsyncRead + tokio::io::AsyncWrite
-{
-    client: TokioTowerClient<T>
+pub struct KafkaTransportService<Svc> {
+    inner: Svc
 }
 
-impl<T> KafkaTransportSvc<T> {
-    pub async fn new<C>(connection: C) -> Result<Self, C::Error>
-        where C: MakeConnection
-    {
-        let codec = KafkaClientCodec::new();
-        let io = connection.connect().await?;
-        let io = Framed::new(io, codec);
-        let client = Client::builder(MultiplexTransport::new(io, CorrelationStore::default()))
-            .pending_store(VecDequePendingStore::default())
-            .build();
-
-        Ok(Self {
-            client
-        })
+impl<Svc> KafkaTransportService<Svc> {
+    pub fn new(inner: Svc) -> Self {
+        Self {
+            inner
+        }
     }
 }
 
-impl<S, E> Service<BytesMut> for KafkaTransportSvc<S>
+impl<S, E> Service<BytesMut> for KafkaTransportService<S>
     where S: Service<BytesMut, Response=BytesMut, Error=E> + 'static,
           E: Into<KafkaTransportError>
 {
@@ -167,10 +181,10 @@ impl<S, E> Service<BytesMut> for KafkaTransportSvc<S>
     type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>>>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
-        self.client.poll_ready(cx).map_err(|e| e.into())
+        self.inner.poll_ready(cx).map_err(|e| e.into())
     }
 
     fn call(&mut self, req: BytesMut) -> Self::Future {
-        Box::pin(self.client.call(req).map_err(|e| e.into()))
+        Box::pin(self.inner.call(req).map_err(|e| e.into()))
     }
 }
