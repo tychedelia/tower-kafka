@@ -4,8 +4,8 @@ use kafka_protocol::protocol::StrBytes;
 use tower::ServiceExt;
 use tower_kafka::connect::TcpConnection;
 use tower_kafka::error::KafkaError;
-use tower_kafka::transport::{KafkaTransportService, MakeClient};
-use tower_kafka::{KafkaService, MakeService};
+
+use tower_kafka::{MakeService};
 
 // Make sure to run kafka from docker-compose in root of project.
 // #[ignore]
