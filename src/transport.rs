@@ -172,11 +172,11 @@ impl<Svc> KafkaTransportService<Svc> {
     }
 }
 
-impl<S, E> Service<BytesMut> for KafkaTransportService<S>
-    where S: Service<BytesMut, Response=BytesMut, Error=E> + 'static,
-          E: Into<KafkaTransportError>
+impl<Svc> Service<BytesMut> for KafkaTransportService<Svc>
+    where Svc: Service<BytesMut, Response=BytesMut> + 'static,
+          Svc::Error: Into<KafkaTransportError>
 {
-    type Response = S::Response;
+    type Response = Svc::Response;
     type Error = KafkaTransportError;
     type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>>>>;
 

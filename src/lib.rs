@@ -1,19 +1,17 @@
-/// # tower-kafka
-///
-/// A tower service for interacting with Apache Kafka.
-///
-/// ## Example
-///
-/// ```rust
-/// use tower_kafka::KafkaService;
-///
-/// #[tokio::main]
-/// async fn main() -> std::io::Result<()> {
-///     use tokio::net::TcpStream;
-///     let tcp_stream = TcpStream::connect("127.0.0.1:9093".parse().unwrap()).await?;
-///     let svc = KafkaService::new(tcp_stream);
-/// }
-/// ```
+//! # tower-kafka
+//!
+//! A tower service for interacting with Apache Kafka.
+//!
+//! ## Example
+//!
+//! ```rust
+//! use tower_kafka::KafkaService;
+//!
+//! #[tokio::main]
+//! async fn main() -> std::io::Result<()> {
+//!     Ok(())
+//! }
+//! ```
 use std::fmt::{Debug, Display, Formatter};
 use std::pin::Pin;
 use std::task::{Context, Poll};
@@ -23,14 +21,15 @@ use kafka_protocol::messages::{RequestHeader, ResponseHeader};
 use kafka_protocol::protocol::{Decodable, DecodeError, Encodable, EncodeError, HeaderVersion, Message, Request};
 use tower::Service;
 use crate::connect::MakeConnection;
-use crate::KafkaError::Serde;
+use crate::error::KafkaError;
 use crate::transport::{KafkaTransportError, KafkaTransportService, MakeClient, TransportClient};
 
 pub mod transport;
 pub mod connect;
+pub mod error;
 
 pub struct KafkaService<Svc> {
-    inner: Svc
+    pub inner: Svc
 }
 
 impl <Svc> KafkaService<Svc> {
@@ -79,37 +78,13 @@ impl <C> MakeService<C>
     }
 }
 
-#[derive(thiserror::Error, Debug)]
-pub enum KafkaError {
-    Transport(KafkaTransportError),
-    Serde,
-}
-
-impl Display for KafkaError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
-}
-
-impl From<DecodeError> for KafkaError {
-    fn from(_: DecodeError) -> Self {
-        Serde
-    }
-}
-
-impl From<EncodeError> for KafkaError {
-    fn from(_: EncodeError) -> Self {
-        Serde
-    }
-}
-
 pub type KafkaRequest<Req> = (RequestHeader, Req);
 pub type KafkaResponse<Res> = (ResponseHeader, Res);
 
 impl<Req, Svc> Service<KafkaRequest<Req>> for KafkaService<Svc>
     where Req: Request + Message + Encodable + HeaderVersion,
           Svc: Service<BytesMut, Response=BytesMut>,
-          <Svc as Service<BytesMut>>::Error: Into<KafkaError> + Debug,
+          <Svc as Service<BytesMut>>::Error: Into<KafkaError>,
           <Svc as Service<BytesMut>>::Future: 'static,
 {
     type Response = KafkaResponse<Req::Response>;
