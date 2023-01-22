@@ -6,17 +6,15 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::task::{Context, Poll};
 
+use crate::connect::MakeConnection;
 use bytes::BytesMut;
 use futures::TryFutureExt;
 use kafka_protocol::protocol::buf::ByteBuf;
+use tokio_tower::multiplex::{client::VecDequePendingStore, Client, MultiplexTransport, TagStore};
 use tokio_tower::Error;
-use tokio_tower::multiplex::{
-    Client, client::VecDequePendingStore, MultiplexTransport, TagStore,
-};
 use tokio_util::codec;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tower::Service;
-use crate::connect::MakeConnection;
 
 // `tokio-tower` tag store for the Kafka protocol.
 #[derive(Default)]
@@ -33,27 +31,26 @@ impl TagStore<BytesMut, BytesMut> for CorrelationStore {
 
     fn assign_tag(self: Pin<&mut Self>, request: &mut BytesMut) -> i32 {
         let tag = self.id_gen.fetch_add(1, Ordering::SeqCst);
-        request[REQUEST_CORRELATION_ID_OFFSET..REQUEST_CORRELATION_ID_OFFSET+4].copy_from_slice(&tag.to_be_bytes());
+        request[REQUEST_CORRELATION_ID_OFFSET..REQUEST_CORRELATION_ID_OFFSET + 4]
+            .copy_from_slice(&tag.to_be_bytes());
         tag
     }
 
     fn finish_tag(mut self: Pin<&mut Self>, response: &BytesMut) -> i32 {
-        let tag = i32::from_be_bytes(response[RESPONSE_CORRELATION_ID_OFFSET..RESPONSE_CORRELATION_ID_OFFSET+4].try_into().unwrap());
+        let tag = i32::from_be_bytes(
+            response[RESPONSE_CORRELATION_ID_OFFSET..RESPONSE_CORRELATION_ID_OFFSET + 4]
+                .try_into()
+                .unwrap(),
+        );
         self.correlation_ids.remove(&tag);
         tag
     }
 }
 
 type FramedIO<T> = Framed<T, KafkaClientCodec>;
-pub type TransportError<T> = Error<
-    MultiplexTransport<FramedIO<T>, CorrelationStore>, BytesMut
->;
-pub type TransportClient<T> = Client<
-    MultiplexTransport<FramedIO<T>, CorrelationStore>,
-    TransportError<T>,
-    BytesMut
->;
-
+pub type TransportError<T> = Error<MultiplexTransport<FramedIO<T>, CorrelationStore>, BytesMut>;
+pub type TransportClient<T> =
+    Client<MultiplexTransport<FramedIO<T>, CorrelationStore>, TransportError<T>, BytesMut>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum KafkaTransportError {
@@ -74,7 +71,8 @@ impl Display for KafkaTransportError {
 }
 
 impl<T> From<TransportError<T>> for KafkaTransportError
-    where T: tokio::io::AsyncWrite + tokio::io::AsyncRead
+where
+    T: tokio::io::AsyncWrite + tokio::io::AsyncRead,
 {
     fn from(value: TransportError<T>) -> Self {
         match value {
@@ -112,27 +110,22 @@ impl KafkaClientCodec {
 impl codec::Encoder<BytesMut> for KafkaClientCodec {
     type Error = io::Error;
 
-    fn encode(
-        &mut self,
-        mut item: BytesMut,
-        dst: &mut BytesMut,
-    ) -> Result<(), Self::Error> {
+    fn encode(&mut self, mut item: BytesMut, dst: &mut BytesMut) -> Result<(), Self::Error> {
         self.length_codec.encode(item.get_bytes(item.len()), dst)?;
         Ok(())
     }
 }
 
 pub struct MakeClient<C> {
-    connection: C
+    connection: C,
 }
 
-impl <C> MakeClient<C>
-    where C: MakeConnection + 'static
+impl<C> MakeClient<C>
+where
+    C: MakeConnection + 'static,
 {
     pub fn with_connection(connection: C) -> Self {
-        Self {
-            connection
-        }
+        Self { connection }
     }
 
     pub async fn into_client(self) -> Result<TransportClient<C::Connection>, C::Error> {
@@ -161,24 +154,23 @@ impl codec::Decoder for KafkaClientCodec {
 }
 
 pub struct KafkaTransportService<Svc> {
-    inner: Svc
+    inner: Svc,
 }
 
 impl<Svc> KafkaTransportService<Svc> {
     pub fn new(inner: Svc) -> Self {
-        Self {
-            inner
-        }
+        Self { inner }
     }
 }
 
 impl<Svc> Service<BytesMut> for KafkaTransportService<Svc>
-    where Svc: Service<BytesMut, Response=BytesMut> + 'static,
-          Svc::Error: Into<KafkaTransportError>
+where
+    Svc: Service<BytesMut, Response = BytesMut> + 'static,
+    Svc::Error: Into<KafkaTransportError>,
 {
     type Response = Svc::Response;
     type Error = KafkaTransportError;
-    type Future = Pin<Box<dyn Future<Output=Result<Self::Response, Self::Error>>>>;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>>>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx).map_err(|e| e.into())

@@ -1,6 +1,6 @@
-use std::fmt::{Display, Formatter};
-use kafka_protocol::protocol::{DecodeError, EncodeError};
 use crate::transport::KafkaTransportError;
+use kafka_protocol::protocol::{DecodeError, EncodeError};
+use std::fmt::{Display, Formatter};
 
 #[derive(thiserror::Error, Debug)]
 pub enum KafkaError {

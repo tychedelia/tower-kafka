@@ -9,7 +9,7 @@ use tokio::net::TcpStream;
 pub trait MakeConnection {
     type Connection: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Sized;
     type Error: Error;
-    type Future: Future<Output=Result<Self::Connection, Self::Error>>;
+    type Future: Future<Output = Result<Self::Connection, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>>;
 
@@ -22,16 +22,15 @@ pub struct TcpConnection {
 
 impl TcpConnection {
     pub fn new(addr: SocketAddr) -> Self {
-        Self {
-            addr
-        }
+        Self { addr }
     }
 }
 
 impl MakeConnection for TcpConnection {
     type Connection = TcpStream;
     type Error = io::Error;
-    type Future = Pin<Box<dyn Future<Output=io::Result<Self::Connection>> + Send + Sync + 'static>>;
+    type Future =
+        Pin<Box<dyn Future<Output = io::Result<Self::Connection>> + Send + Sync + 'static>>;
 
     fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
