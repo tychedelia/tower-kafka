@@ -8,7 +8,7 @@ use tower_kafka::error::KafkaError;
 use tower_kafka::{MakeService};
 
 // Make sure to run kafka from docker-compose in root of project.
-// #[ignore]
+#[ignore]
 #[tokio::test]
 async fn test() -> Result<(), KafkaError> {
     let connection = TcpConnection::new("127.0.0.1:9092".parse().unwrap());
