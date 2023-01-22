@@ -33,7 +33,7 @@ impl MakeConnection for TcpConnection {
     type Error = io::Error;
     type Future = Pin<Box<dyn Future<Output=io::Result<Self::Connection>> + Send + Sync + 'static>>;
 
-    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         Poll::Ready(Ok(()))
     }
 

@@ -1,9 +1,9 @@
 use kafka_protocol::messages::{ApiKey, MetadataRequest, RequestHeader};
 use kafka_protocol::protocol::StrBytes;
-use tokio::net::TcpStream;
+
 use tower::ServiceExt;
-use tower_kafka::transport::{KafkaTransportError, KafkaTransportService, MakeClient, TransportClient};
-use tower_kafka::{KafkaService, MakeService};
+use tower_kafka::transport::{KafkaTransportService, MakeClient};
+use tower_kafka::{KafkaService};
 use tower_kafka::connect::TcpConnection;
 use tower_kafka::error::KafkaError;
 
@@ -14,7 +14,7 @@ async fn test() -> Result<(), KafkaError> {
     let connection = TcpConnection::new("127.0.0.1:9092".parse().unwrap());
     let client = MakeClient::with_connection(connection).into_client().await.unwrap();
     let transport = KafkaTransportService::new(client);
-    let mut svc = KafkaService { inner: transport };
+    let svc = KafkaService { inner: transport };
     let mut header = RequestHeader::default();
     header.client_id = Some(StrBytes::from_str("hi"));
     header.request_api_key = ApiKey::MetadataKey as i16;

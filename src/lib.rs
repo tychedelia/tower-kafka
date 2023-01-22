@@ -12,17 +12,17 @@
 //!     Ok(())
 //! }
 //! ```
-use std::fmt::{Debug, Display, Formatter};
+
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use bytes::BytesMut;
 use futures::future::Future;
 use kafka_protocol::messages::{RequestHeader, ResponseHeader};
-use kafka_protocol::protocol::{Decodable, DecodeError, Encodable, EncodeError, HeaderVersion, Message, Request};
+use kafka_protocol::protocol::{Decodable, Encodable, HeaderVersion, Message, Request};
 use tower::Service;
 use crate::connect::MakeConnection;
 use crate::error::KafkaError;
-use crate::transport::{KafkaTransportError, KafkaTransportService, MakeClient, TransportClient};
+use crate::transport::{KafkaTransportService, MakeClient, TransportClient};
 
 pub mod transport;
 pub mod connect;
